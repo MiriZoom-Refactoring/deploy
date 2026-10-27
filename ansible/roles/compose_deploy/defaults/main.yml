@@ -1,0 +1,24 @@
+---
+deploy_dir: /opt/mirizoom
+deploy_wait_timeout: 120
+service_config:
+  frontend:
+    compose_file: docker-compose.frontend.yml
+    env_file: frontend.env
+    compose_service: nginx
+    tag_variable: FRONTEND_TAG
+  backend:
+    compose_file: docker-compose.backend.yml
+    env_file: app.env
+    compose_service: backend
+    tag_variable: BACKEND_TAG
+  fastapi:
+    compose_file: docker-compose.backend.yml
+    env_file: app.env
+    compose_service: fastapi
+    tag_variable: FASTAPI_TAG
+  batch:
+    compose_file: docker-compose.backend.yml
+    env_file: app.env
+    compose_service: batch
+    tag_variable: BATCH_TAG

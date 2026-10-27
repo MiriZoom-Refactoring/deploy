@@ -1,0 +1,28 @@
+---
+- name: Run the deployed law batch once with a host-level lock
+  hosts: app
+  gather_facts: false
+  tasks:
+    - name: Execute the prepared batch image without pulling a different version
+      ansible.builtin.command:
+        argv:
+          - flock
+          - -n
+          - /tmp/mirizoom-law-batch.lock
+          - docker
+          - compose
+          - --profile
+          - batch
+          - --env-file
+          - app.env
+          - -f
+          - docker-compose.backend.yml
+          - run
+          - --rm
+          - --no-deps
+          - --pull
+          - never
+          - batch
+        chdir: /opt/mirizoom
+      when: not ansible_check_mode
+      no_log: true
