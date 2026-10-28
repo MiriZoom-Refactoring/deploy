@@ -1,0 +1,46 @@
+---
+- name: Validate local input before changing any servers
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  tasks:
+    - name: Validate secrets and bootstrap inventory
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_playbook_python }}"
+          - "{{ playbook_dir }}/../../scripts/validate_config.py"
+          - --secrets-dir
+          - "{{ playbook_dir }}/../../.secrets"
+          - --inventory
+          - "{{ ansible_inventory_sources[0] }}"
+      changed_when: false
+      check_mode: false
+
+- name: Prepare the three Amazon Linux EC2 instances from the Jenkins host
+  hosts: all
+  become: true
+  gather_facts: true
+  pre_tasks:
+    - name: Check the selected Amazon Linux AMI before changing the host
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Amazon'
+          - ansible_facts.distribution_version == '2023'
+          - ansible_facts.architecture == 'x86_64'
+  roles:
+    - role: swap
+    - role: docker
+
+- name: Prepare App and Web configuration without starting services
+  hosts: app:web
+  become: true
+  gather_facts: false
+  roles:
+    - role: server_config
+
+- name: Start Jenkins with JCasC and Ansible
+  hosts: jenkins
+  become: true
+  gather_facts: false
+  roles:
+    - role: jenkins

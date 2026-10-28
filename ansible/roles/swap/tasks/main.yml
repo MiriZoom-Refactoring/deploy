@@ -1,0 +1,36 @@
+---
+- name: Allocate a 2 GiB swap file for small practice instances
+  ansible.builtin.command:
+    argv: [dd, if=/dev/zero, of=/swapfile, bs=1M, count=2048]
+    creates: /swapfile
+  register: swap_created
+
+- name: Restrict swap file access
+  ansible.builtin.file:
+    path: /swapfile
+    owner: root
+    group: root
+    mode: '0600'
+
+- name: Format newly allocated swap
+  ansible.builtin.command:
+    argv: [mkswap, /swapfile]
+  when: swap_created.changed and not ansible_check_mode
+
+- name: Check active swap devices
+  ansible.builtin.command:
+    argv: [swapon, --noheadings, --show=NAME]
+  changed_when: false
+  check_mode: false
+  register: active_swap
+
+- name: Enable the practice swap file
+  ansible.builtin.command:
+    argv: [swapon, /swapfile]
+  when: "'/swapfile' not in active_swap.stdout_lines and not ansible_check_mode"
+
+- name: Enable swap on subsequent boots
+  ansible.builtin.lineinfile:
+    path: /etc/fstab
+    regexp: '^/swapfile\s'
+    line: /swapfile none swap sw 0 0

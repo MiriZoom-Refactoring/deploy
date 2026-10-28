@@ -1,75 +1,36 @@
 pipeline {
     agent any
-
     options {
         skipDefaultCheckout(true)
         disableConcurrentBuilds()
         timeout(time: 60, unit: 'MINUTES')
         timestamps()
     }
-
-    triggers {
-        cron('H 3 * * 0')
-    }
-
-    environment {
-        DEPLOY_DIR = '/opt/mirizoom'
-    }
-
+    triggers { cron('TZ=Asia/Seoul\nH 3 * * 0') }
     stages {
-        stage('Run Law Batch') {
+        stage('Checkout') { steps { checkout scm } }
+        stage('Run Law Batch with Ansible') {
             steps {
                 withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId: 'mirizoom-ec2-ssh',
-                        keyFileVariable: 'SSH_KEY',
-                        usernameVariable: 'SSH_USER'
-                    ),
-                    string(
-                        credentialsId: 'mirizoom-app-host',
-                        variable: 'APP_HOST'
-                    )
+                    sshUserPrivateKey(credentialsId: 'mirizoom-ec2-ssh', keyFileVariable: 'SSH_KEY', usernameVariable: 'SSH_USER'),
+                    string(credentialsId: 'mirizoom-app-host', variable: 'APP_HOST'),
+                    string(credentialsId: 'mirizoom-web-host', variable: 'WEB_HOST')
                 ]) {
-                    sh '''
-                        set -eu
-
-                        SSH_TARGET="$SSH_USER@$APP_HOST"
-
-                        ssh \
-                            -o BatchMode=yes \
-                            -o ConnectTimeout=10 \
-                            -o StrictHostKeyChecking=yes \
-                            -i "$SSH_KEY" \
-                            "$SSH_TARGET" \
-                            "
-                                set -eu
-                                cd '$DEPLOY_DIR'
-
-                                test -f app.env
-                                test -f docker-compose.backend.yml
-                                command -v flock >/dev/null
-                                mkdir -p batch-data
-
-                                flock -n /tmp/mirizoom-law-batch.lock \\
-                                    docker compose \\
-                                        --profile batch \\
-                                        --env-file app.env \\
-                                        -f docker-compose.backend.yml \\
-                                        run --rm --no-deps batch
-                            "
-                    '''
+                    dir('ansible') {
+                        sh '''
+                            set -eu
+                            set +x
+                            export ANSIBLE_CONFIG="$PWD/ansible.cfg"
+                            ansible-playbook playbooks/run-batch.yml
+                        '''
+                    }
                 }
             }
         }
     }
-
     post {
-        success {
-            echo '주간 세법 Batch가 완료되었습니다.'
-        }
-
-        failure {
-            echo '주간 세법 Batch 실행에 실패했습니다. Console Output을 확인하세요.'
-        }
+        success { echo '주간 세법 Batch가 완료되었습니다.' }
+        failure { echo '주간 세법 Batch 실행에 실패했습니다.' }
+        cleanup { deleteDir() }
     }
 }

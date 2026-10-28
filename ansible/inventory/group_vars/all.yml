@@ -1,0 +1,7 @@
+---
+deploy_dir: /opt/mirizoom
+jenkins_dir: /opt/mirizoom-jenkins
+local_secrets_dir: "{{ inventory_dir }}/../../.secrets"
+jenkins_source_dir: "{{ playbook_dir }}/../../../jenkins-infra"
+compose_version: v2.39.1
+buildx_version: v0.28.0

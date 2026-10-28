@@ -1,0 +1,33 @@
+---
+- name: Validate deployment input before connecting to EC2
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    deploy_service: "{{ lookup('ansible.builtin.env', 'SERVICE') }}"
+    image_tag: "{{ lookup('ansible.builtin.env', 'IMAGE_TAG') }}"
+  tasks:
+    - name: Validate service, image tag and SSH credentials
+      ansible.builtin.assert:
+        that:
+          - deploy_service in ['frontend', 'backend', 'fastapi', 'batch']
+          - image_tag is match('^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$')
+          - lookup('ansible.builtin.env', 'WEB_HOST') | length > 0
+          - lookup('ansible.builtin.env', 'APP_HOST') | length > 0
+          - lookup('ansible.builtin.env', 'SSH_USER') | length > 0
+          - lookup('ansible.builtin.env', 'SSH_KEY') | length > 0
+          - lookup('ansible.builtin.env', 'DOCKERHUB_USERNAME') | length > 0
+          - lookup('ansible.builtin.env', 'DOCKERHUB_TOKEN') | length > 0
+        fail_msg: SERVICE, IMAGE_TAG, WEB_HOST, APP_HOST, SSH_USER and SSH_KEY are required.
+      no_log: true
+
+- name: Deploy the selected MiriZoom service
+  hosts: "{{ 'web' if lookup('ansible.builtin.env', 'SERVICE') == 'frontend' else 'app' }}"
+  gather_facts: false
+  serial: 1
+  any_errors_fatal: true
+  vars:
+    deploy_service: "{{ lookup('ansible.builtin.env', 'SERVICE') }}"
+    image_tag: "{{ lookup('ansible.builtin.env', 'IMAGE_TAG') }}"
+  roles:
+    - role: compose_deploy

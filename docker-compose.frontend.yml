@@ -4,7 +4,7 @@ services:
     container_name: mirizoom-nginx
     restart: unless-stopped
     environment:
-      DOMAIN: ${DOMAIN:?DOMAIN is required}
+      DOMAIN: ${DOMAIN:-_}
       BACKEND_HOST: ${BACKEND_HOST:?BACKEND_HOST is required}
       BACKEND_PORT: ${BACKEND_PORT:-8080}
       NGINX_ENVSUBST_FILTER: '^(DOMAIN|BACKEND_HOST|BACKEND_PORT)$'

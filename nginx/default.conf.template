@@ -3,31 +3,9 @@ upstream mirizoom_backend {
     keepalive 32;
 }
 
-# HTTP 인증 및 HTTPS 리다이렉트
 server {
     listen 80;
-    server_name ${DOMAIN};
-
-    location /.well-known/acme-challenge/ {
-        root /var/www/certbot;
-    }
-
-    location / {
-        return 301 https://$host$request_uri;
-    }
-}
-
-# HTTPS
-server {
-    listen 443 ssl;
-    server_name ${DOMAIN};
-
-    ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;
-
-    ssl_protocols TLSv1.2 TLSv1.3;
-    ssl_session_cache shared:SSL:10m;
-    ssl_session_timeout 1d;
+    server_name _;
 
     location / {
         root /usr/share/nginx/html;
@@ -44,6 +22,7 @@ server {
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+
         proxy_set_header Authorization $http_authorization;
         proxy_set_header Last-Event-ID $http_last_event_id;
 
@@ -53,13 +32,13 @@ server {
 
         proxy_read_timeout 75s;
         send_timeout 75s;
+
         proxy_next_upstream off;
         proxy_intercept_errors off;
     }
 
     location /api/ {
         proxy_pass http://mirizoom_backend/api/;
-
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

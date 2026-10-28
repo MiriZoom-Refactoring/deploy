@@ -1,0 +1,87 @@
+---
+- name: Create Jenkins configuration directories
+  ansible.builtin.file:
+    path: "{{ jenkins_dir }}/{{ item }}"
+    state: directory
+    mode: '0755'
+  loop: ['', casc, jobs, secrets]
+
+- name: Copy the Jenkins build and configuration files
+  ansible.builtin.copy:
+    src: "{{ jenkins_source_dir }}/{{ item }}"
+    dest: "{{ jenkins_dir }}/{{ item }}"
+    mode: '0644'
+  loop:
+    - .dockerignore
+    - Dockerfile
+    - compose.yml
+    - plugins.txt
+    - ansible-requirements.txt
+    - collections.yml
+    - casc/jenkins.yaml
+    - jobs/pipelines.groovy
+
+- name: Copy Jenkins environment settings
+  ansible.builtin.copy:
+    src: "{{ local_secrets_dir }}/jenkins.env"
+    dest: "{{ jenkins_dir }}/.env"
+    mode: '0600'
+  no_log: true
+
+- name: Find the host Docker socket group
+  ansible.builtin.stat:
+    path: /var/run/docker.sock
+  register: docker_socket
+
+- name: Set generated Jenkins connection values
+  ansible.builtin.lineinfile:
+    path: "{{ jenkins_dir }}/.env"
+    regexp: "^{{ item.key }}="
+    line: "{{ item.key }}={{ item.value }}"
+    mode: '0600'
+  loop:
+    - key: DOCKER_GID
+      value: "{{ docker_socket.stat.gid }}"
+    - key: MIRIZOOM_EC2_SSH_USER
+      value: "{{ hostvars[groups['app'][0]].ansible_user }}"
+    - key: MIRIZOOM_APP_HOST
+      value: "{{ hostvars[groups['app'][0]].private_ip }}"
+    - key: MIRIZOOM_WEB_HOST
+      value: "{{ hostvars[groups['web'][0]].private_ip }}"
+  no_log: true
+
+- name: Install the EC2 SSH key as a Jenkins-readable secret
+  ansible.builtin.copy:
+    src: "{{ ansible_ssh_private_key_file }}"
+    dest: "{{ jenkins_dir }}/secrets/ec2_ssh_key"
+    owner: '1000'
+    group: '1000'
+    mode: '0400'
+  no_log: true
+
+- name: Build known_hosts for private addresses using verified host keys
+  ansible.builtin.copy:
+    dest: "{{ jenkins_dir }}/known_hosts"
+    mode: '0644'
+    content: |
+      {{ hostvars[groups['app'][0]].private_ip }} {{ hostvars[groups['app'][0]].ssh_host_key.content | b64decode | trim }}
+      {{ hostvars[groups['web'][0]].private_ip }} {{ hostvars[groups['web'][0]].ssh_host_key.content | b64decode | trim }}
+
+- name: Build and start Jenkins
+  community.docker.docker_compose_v2:
+    project_src: "{{ jenkins_dir }}"
+    files: [compose.yml]
+    build: always
+    recreate: always
+    state: present
+  no_log: true
+
+- name: Wait for the Jenkins login page
+  ansible.builtin.uri:
+    url: http://127.0.0.1:8080/login
+    status_code: 200
+  register: jenkins_login
+  retries: 60
+  delay: 5
+  until: jenkins_login.status | default(0) == 200
+  when: not ansible_check_mode

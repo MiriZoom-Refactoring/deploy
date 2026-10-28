@@ -1,0 +1,57 @@
+---
+- name: Create service directories
+  ansible.builtin.file:
+    path: "{{ deploy_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0755'
+  loop: ['', nginx, batch-data, certbot/conf, certbot/www, fastapi-storage]
+
+- name: Copy the App environment file
+  ansible.builtin.copy:
+    src: "{{ local_secrets_dir }}/app.env"
+    dest: "{{ deploy_dir }}/app.env"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0600'
+    force: false
+  when: inventory_hostname in groups['app']
+  no_log: true
+
+- name: Copy the Web environment file
+  ansible.builtin.copy:
+    src: "{{ local_secrets_dir }}/frontend.env"
+    dest: "{{ deploy_dir }}/frontend.env"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0600'
+    force: false
+  when: inventory_hostname in groups['web']
+  no_log: true
+
+- name: Set the App private IP used by Web Nginx
+  ansible.builtin.lineinfile:
+    path: "{{ deploy_dir }}/frontend.env"
+    regexp: '^BACKEND_HOST='
+    line: "BACKEND_HOST={{ hostvars[groups['app'][0]].private_ip }}"
+    mode: '0600'
+  when: inventory_hostname in groups['web']
+  no_log: true
+
+- name: Copy Compose configuration for this server
+  ansible.builtin.copy:
+    src: "{{ role_path }}/../../../{{ 'docker-compose.backend.yml' if inventory_hostname in groups['app'] else 'docker-compose.frontend.yml' }}"
+    dest: "{{ deploy_dir }}/{{ 'docker-compose.backend.yml' if inventory_hostname in groups['app'] else 'docker-compose.frontend.yml' }}"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0644'
+
+- name: Copy the initial HTTP Nginx template
+  ansible.builtin.copy:
+    src: "{{ role_path }}/../../../nginx/default.conf.template"
+    dest: "{{ deploy_dir }}/nginx/default.conf.template"
+    owner: "{{ ansible_user }}"
+    group: "{{ ansible_user }}"
+    mode: '0644'
+  when: inventory_hostname in groups['web']

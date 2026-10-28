@@ -4,6 +4,7 @@ services:
     container_name: mirizoom-backend
     restart: unless-stopped
     environment:
+      JAVA_TOOL_OPTIONS: ${BACKEND_JAVA_OPTS:--Xms128m -Xmx512m -XX:MaxMetaspaceSize=192m}
       DB_HOST: ${DB_HOST:?DB_HOST is required}
       DB_PORT: ${DB_PORT:-3306}
       DB_NAME: ${DB_NAME:-mirizoom}
@@ -41,6 +42,8 @@ services:
       MIRIZOOM_DB_USER: ${MIRIZOOM_DB_USER:?MIRIZOOM_DB_USER is required}
       MIRIZOOM_DB_PASSWORD: ${MIRIZOOM_DB_PASSWORD:?MIRIZOOM_DB_PASSWORD is required}
       MIRIZOOM_DB_CONNECT_TIMEOUT: ${MIRIZOOM_DB_CONNECT_TIMEOUT:-5}
+    volumes:
+      - ./fastapi-storage:/app/storage
     expose:
       - '8000'
     healthcheck:

@@ -1,0 +1,122 @@
+---
+- name: Select Compose settings
+  ansible.builtin.set_fact:
+    selected_service: "{{ service_config[deploy_service] }}"
+
+- name: Check the existing server environment file
+  ansible.builtin.stat:
+    path: "{{ deploy_dir }}/{{ selected_service.env_file }}"
+  register: server_env
+  no_log: true
+
+- name: Require an existing environment file
+  ansible.builtin.assert:
+    that:
+      - server_env.stat.exists
+      - server_env.stat.isreg | default(false)
+    fail_msg: Prepare the server environment file following deploy/README.md first.
+
+- name: Check Docker Compose availability and Docker access
+  ansible.builtin.command:
+    argv: [docker, compose, version, --short]
+  changed_when: false
+  check_mode: false
+
+- name: Check access to Docker daemon
+  ansible.builtin.command:
+    argv: [docker, info]
+  changed_when: false
+  check_mode: false
+
+- name: Create the Nginx template directory
+  ansible.builtin.file:
+    path: "{{ deploy_dir }}/nginx"
+    state: directory
+    mode: '0755'
+  when: deploy_service == 'frontend'
+
+- name: Copy the production Compose specification
+  ansible.builtin.copy:
+    src: "{{ role_path }}/../../../{{ selected_service.compose_file }}"
+    dest: "{{ deploy_dir }}/{{ selected_service.compose_file }}"
+    mode: '0644'
+
+- name: Copy the Docker envsubst Nginx template without rendering it
+  ansible.builtin.copy:
+    src: "{{ role_path }}/../../../nginx/default.conf.template"
+    dest: "{{ deploy_dir }}/nginx/default.conf.template"
+    mode: '0644'
+  when: deploy_service == 'frontend'
+  register: nginx_template
+
+- name: Authenticate to Docker Hub for image pulls
+  ansible.builtin.command:
+    argv: [docker, login, --username, "{{ lookup('ansible.builtin.env', 'DOCKERHUB_USERNAME') }}", --password-stdin]
+    stdin: "{{ lookup('ansible.builtin.env', 'DOCKERHUB_TOKEN') }}"
+    stdin_add_newline: false
+  changed_when: false
+  when: not ansible_check_mode
+  no_log: true
+
+- name: Pull the batch image without running the batch
+  community.docker.docker_compose_v2_pull:
+    project_src: "{{ deploy_dir }}"
+    files: ["{{ selected_service.compose_file }}"]
+    env_files: ["{{ selected_service.env_file }}"]
+    profiles: [batch]
+    services: [batch]
+    include_deps: false
+  environment: "{{ {selected_service.tag_variable: image_tag} }}"
+  when: deploy_service == 'batch'
+  no_log: true
+
+- name: Pull and start only the selected service
+  community.docker.docker_compose_v2:
+    project_src: "{{ deploy_dir }}"
+    files: ["{{ selected_service.compose_file }}"]
+    env_files: ["{{ selected_service.env_file }}"]
+    services: ["{{ selected_service.compose_service }}"]
+    state: present
+    build: never
+    pull: always
+    dependencies: false
+    remove_orphans: false
+    recreate: "{{ 'always' if deploy_service == 'frontend' and nginx_template.changed | default(false) else 'auto' }}"
+    wait: true
+    wait_timeout: "{{ deploy_wait_timeout }}"
+  when: deploy_service != 'batch'
+  environment: "{{ {selected_service.tag_variable: image_tag} }}"
+  no_log: true
+
+- name: Check the frontend HTTP response
+  ansible.builtin.uri:
+    url: http://127.0.0.1/
+    status_code: 200
+  register: frontend_response
+  retries: 12
+  delay: 5
+  until: frontend_response.status | default(0) == 200
+  when: deploy_service == 'frontend' and not ansible_check_mode
+
+- name: Verify the backend FAQ API and database access
+  ansible.builtin.uri:
+    url: http://127.0.0.1:8080/api/ai/faq
+    status_code: 200
+    return_content: true
+  register: backend_response
+  retries: 24
+  delay: 5
+  until:
+    - backend_response.status | default(0) == 200
+    - (backend_response.json | default({})).get('statusCode', 0) == 200
+  when: deploy_service == 'backend' and not ansible_check_mode
+  no_log: true
+
+- name: Save the successful image tag for subsequent deployments
+  ansible.builtin.lineinfile:
+    path: "{{ deploy_dir }}/{{ selected_service.env_file }}"
+    regexp: "^{{ selected_service.tag_variable }}="
+    line: "{{ selected_service.tag_variable }}={{ image_tag }}"
+    mode: '0600'
+  when: not ansible_check_mode
+  no_log: true
